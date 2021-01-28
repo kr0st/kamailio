@@ -1263,6 +1263,11 @@ int Ro_Send_CCR(struct sip_msg *msg, struct dlg_cell *dlg, int dir, int reservat
         goto error;
     }
 
+	int avp_code = 22831; //NC-Roaming-Indicator
+	char avp_val = 'F';
+	LM_DBG("add avp %d = 'F'\n", avp_code);
+	Ro_add_avp(ccr, &avp_val, 1, avp_code, AAA_AVP_FLAG_MANDATORY, 0, AVP_DUPLICATE_DATA, __FUNCTION__);
+
     /* before we send, update our session object with CC App session ID and data */
     new_session->auth_appid = cc_acc_session->application_id;
     new_session->auth_session_type = cc_acc_session->type;
