@@ -1263,11 +1263,6 @@ int Ro_Send_CCR(struct sip_msg *msg, struct dlg_cell *dlg, int dir, int reservat
         goto error;
     }
 
-	int avp_code = 22831; //NC-Roaming-Indicator
-	char avp_val = 'F';
-	LM_DBG("add avp %d = 'F'\n", avp_code);
-	Ro_add_avp(ccr, &avp_val, 1, avp_code, AAA_AVP_FLAG_MANDATORY, 0, AVP_DUPLICATE_DATA, __FUNCTION__);
-
     /* before we send, update our session object with CC App session ID and data */
     new_session->auth_appid = cc_acc_session->application_id;
     new_session->auth_session_type = cc_acc_session->type;
@@ -1614,17 +1609,19 @@ static int create_cca_fui_avps(int action, str* redirecturi) {
 }
 
 static int get_mac_avp_value(struct sip_msg *msg, str *value) {
-    str mac_avp_name_str = str_init(RO_MAC_AVP_NAME);
-    pv_spec_t avp_spec;
+    static str mac_avp_name_str = str_init(RO_MAC_AVP_NAME);
+	static str default_mac = str_init("00-00-00-00-00-00");
+
+	pv_spec_t avp_spec;
     pv_value_t val;
+
+	val.rs.len = 0;
 
     pv_parse_spec2(&mac_avp_name_str, &avp_spec, 1);
     if (pv_get_spec_value(msg, &avp_spec, &val) != 0 || val.rs.len == 0) {
-        value->s = "00-00-00-00-00-00";
-        value->len = strlen(value->s);
+		*value = default_mac;
         return -1;
     }
 
-    *value = val.rs;
     return 0;
 }
