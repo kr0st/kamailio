@@ -1623,5 +1623,7 @@ static int get_mac_avp_value(struct sip_msg *msg, str *value) {
         return -1;
     }
 
+	*value = val.rs;
+
     return 0;
 }
