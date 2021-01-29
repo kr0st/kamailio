@@ -206,21 +206,10 @@ int Ro_add_user_equipment_info(AAAMessage *msg, unsigned int type, str value) {
     list.head = 0;
     list.tail = 0;
 
-	char mac[20] = {0};
-
     set_4bytes(x, type);
     Ro_add_avp_list(&list, x, 4, AVP_User_Equipment_Info_Type, AAA_AVP_FLAG_MANDATORY, 0, AVP_DUPLICATE_DATA, __FUNCTION__);
 
-	//Work-around for mac length problem. For some reason User_Equipment_Info group reported size is 48
-	//when actually it is 45 bytes, so what we are doing here is adding 3 bytes of padding to mac address.
-	if (type == AVP_User_Equipment_Info_Type_MAC) {
-		int len = sizeof(mac) >= value.len ? value.len : sizeof(mac);
-		memcpy(mac, value.s, len);
-
-		Ro_add_avp_list(&list, mac, sizeof(mac), AVP_User_Equipment_Info_Value, AAA_AVP_FLAG_MANDATORY, 0, AVP_DUPLICATE_DATA, __FUNCTION__);
-	}
-	else
-		Ro_add_avp_list(&list, value.s, value.len, AVP_User_Equipment_Info_Value, AAA_AVP_FLAG_MANDATORY, 0, AVP_DUPLICATE_DATA, __FUNCTION__);
+    Ro_add_avp_list(&list, value.s, value.len, AVP_User_Equipment_Info_Value, AAA_AVP_FLAG_MANDATORY, 0, AVP_DUPLICATE_DATA, __FUNCTION__);
 
     group = cdpb.AAAGroupAVPS(list);
 
