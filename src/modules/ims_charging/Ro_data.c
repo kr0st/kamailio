@@ -180,7 +180,7 @@ out_of_memory:
     return 0;
 }
 
-Ro_CCR_t * new_Ro_CCR(int32_t acc_record_type, str * user_name, ims_information_t * ims_info, subscription_id_t * subscription) {
+Ro_CCR_t * new_Ro_CCR(int32_t acc_record_type, str * user_name, ims_information_t * ims_info, subscription_id_t * subscription, int only_root_service_context) {
 
 
     Ro_CCR_t *x = 0;
@@ -207,8 +207,43 @@ Ro_CCR_t * new_Ro_CCR(int32_t acc_record_type, str * user_name, ims_information_
         str_dup_ptr_ptr(x->user_name, user_name, pkg);
     }
 
-    if (cfg.service_context_id && cfg.service_context_id->s)
-        str_dup_ptr(x->service_context_id, *(cfg.service_context_id), pkg);
+    if (cfg.service_context_id && cfg.service_context_id->s) {
+
+		// Service context id string is in the following format: a.b.c.d.e
+		// if only_root_service_context parameter is 1
+		// we need to have only 'e' part inside service context id and remove everything else.
+
+		char* ptr = cfg.service_context_id->s;
+		int count = 0;
+
+		while (ptr && *ptr) {
+			if (*ptr == '.')
+				count++;
+			if (count == 4)
+				break;
+			ptr++;
+		}
+
+		if (!ptr || !*ptr || !only_root_service_context)
+			str_dup_ptr(x->service_context_id, *(cfg.service_context_id), pkg);
+		else {
+			ptr++;
+			int len = strlen(ptr);
+			if (len > 0) {
+				// In case of only_root_service_context == 1 we overwrite
+				// cfg.service_context_id to contain only the last 'e' element
+				// of the whole string.
+				// It is done so all subsequent CCRs had the same root-only
+				// service context id even if sip message is inaccessible.
+				char temp[255] = {0};
+				memcpy(temp, ptr, len);
+				memset(cfg.service_context_id->s, 0, cfg.service_context_id->len);
+				memcpy(cfg.service_context_id->s, temp, len + 1);
+				cfg.service_context_id->len = len;
+				str_dup_ptr(x->service_context_id, *(cfg.service_context_id), pkg);
+			}
+		}
+	}
 
     if (ims_info) {
         if (!(service_info = new_service_information(ims_info, subscription)))

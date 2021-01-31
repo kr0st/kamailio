@@ -463,6 +463,23 @@ int get_timestamps(struct sip_msg * req, struct sip_msg * reply, time_t * req_ti
     return 1;
 }
 
+int override_service_context(struct sip_msg *msg)
+{
+	static str avp_name_str = str_init("$avp(context_id_root_only)");
+
+	pv_spec_t avp_spec;
+	pv_value_t val;
+
+	val.ri = 0;
+
+	pv_parse_spec2(&avp_name_str, &avp_spec, 1);
+	if (pv_get_spec_value(msg, &avp_spec, &val) != 0 || val.ri == 0) {
+		return 0;
+	}
+
+	return 1;
+}
+
 /*
  * creates the ro session for a session establishment
  *
@@ -484,6 +501,7 @@ Ro_CCR_t * dlg_create_ro_session(struct sip_msg * req, struct sip_msg * reply, A
     time_t req_timestamp = 0, reply_timestamp = 0;
     int32_t acc_record_type;
     subscription_id_t subscr;
+	int only_root_service_context = override_service_context(req);
 
     *authp = 0;
 
@@ -518,7 +536,7 @@ Ro_CCR_t * dlg_create_ro_session(struct sip_msg * req, struct sip_msg * reply, A
     subscr.id.len = subscription_id.len;
     subscr.type = subscription_id_type;
 
-    ro_ccr_data = new_Ro_CCR(acc_record_type, &user_name, ims_info, &subscr);
+    ro_ccr_data = new_Ro_CCR(acc_record_type, &user_name, ims_info, &subscr, only_root_service_context);
     if (!ro_ccr_data) {
         LM_ERR("dlg_create_ro_session: no memory left for generic\n");
         goto out_of_memory;
@@ -649,7 +667,7 @@ void send_ccr_interim(struct ro_session* ro_session, unsigned int used, unsigned
 
     acc_record_type = AAA_ACCT_INTERIM;
 
-    ro_ccr_data = new_Ro_CCR(acc_record_type, &user_name, ims_info, &subscr);
+    ro_ccr_data = new_Ro_CCR(acc_record_type, &user_name, ims_info, &subscr, 0);
     if (!ro_ccr_data) {
         LM_ERR("no memory left for generic\n");
         goto error;
@@ -921,7 +939,7 @@ void send_ccr_stop_with_param(struct ro_session *ro_session, unsigned int code, 
 
     acc_record_type = AAA_ACCT_STOP;
 
-    ro_ccr_data = new_Ro_CCR(acc_record_type, &user_name, ims_info, &subscr);
+    ro_ccr_data = new_Ro_CCR(acc_record_type, &user_name, ims_info, &subscr, 0);
     if (!ro_ccr_data) {
         LM_ERR("send_ccr_stop: no memory left for generic\n");
         goto error0;

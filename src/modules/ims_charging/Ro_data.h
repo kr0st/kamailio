@@ -417,7 +417,7 @@ void time_stamps_free(time_stamps_t *x);
 void ims_information_free(ims_information_t *x);
 void service_information_free(service_information_t *x);
 
-Ro_CCR_t * new_Ro_CCR(int32_t acc_record_type, str * user_name, ims_information_t * ims_info, subscription_id_t * subscription);
+Ro_CCR_t * new_Ro_CCR(int32_t acc_record_type, str * user_name, ims_information_t * ims_info, subscription_id_t * subscription, int only_root_service_context);
 void Ro_free_CCR(Ro_CCR_t *x);
 void Ro_free_CCA(Ro_CCA_t *x);
 
