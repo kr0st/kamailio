@@ -463,6 +463,118 @@ int get_timestamps(struct sip_msg * req, struct sip_msg * reply, time_t * req_ti
     return 1;
 }
 
+int get_pval_type(pv_value_t* pval)
+{
+	if (!pval) return PV_VAL_NONE;
+	if (pval->flags&PV_VAL_STR) return PV_VAL_STR;
+	if (pval->flags&PV_VAL_INT) return PV_VAL_INT;
+}
+
+int get_next_avp_code(str* input, int* pos, int len, char sep)
+{
+	if (!input || !pos || *pos < 0 || len <=0 || *pos >= len)
+		return -1;
+
+	char num_str[50];
+	memset(num_str, 0, sizeof(num_str));
+
+	if (input[*pos] == sep) *pos++;
+
+	int counter = 0;
+	for (int i = *pos, i < len, i++)
+	{
+		num_str[counter] = input[*pos];
+
+		counter++;
+		*pos++;
+
+		if ((*pos >= len) || (input[*pos] == sep))
+			break;
+		if (counter >= sizeof(num_str))
+			return  -1;
+	}
+
+	int converted = atoi(num_str);
+	LM_DBG("get_next_avp_code returns %d", converted);
+}
+
+pv_value_t get_custom_avps_string(struct sip_msg *msg)
+{
+	static str avp_name_str = str_init("$avp(add_avps_to_ccr)");
+
+	pv_spec_t avp_spec;
+	pv_value_t val;
+
+	val.rs.len = 0;
+	val.rs.s = 0;
+
+	pv_parse_spec2(&avp_name_str, &avp_spec, 1);
+	if (pv_get_spec_value(msg, &avp_spec, &val) != 0 || val.rs.len == 0)
+		LM_DBG("add_avps_to_ccr avp not found!");
+	else
+		LM_DBG("add_avps_to_ccr = %s", val.rs.s);
+
+	return val;
+}
+
+pv_value_t get_custom_avp(int avp, struct sip_msg *msg)
+{
+	char avp_name[50];
+	sprintf(avp_name, "$avp(i:%d)", avp);
+	str avp_name_str = str_init(avp_name);
+
+	pv_spec_t avp_spec;
+	pv_value_t val;
+
+	val.ri = -1;
+	val.flags = 666;
+	val.rs.len = 0;
+
+	pv_parse_spec2(&avp_name_str, &avp_spec, 1);
+	if (pv_get_spec_value(msg, &avp_spec, &val) != 0)
+		LM_DBG("%s not found!", avp_name);
+	else
+		LM_DBG("%s found!", avp_name);
+
+	return val;
+}
+
+void apply_custom_avps_to_ccr(AAAMessage *ccr, struct sip_msg *msg)
+{
+	pv_value_t customs = get_custom_avps_string(msg);
+	if((customs.rs.s == 0) || (customs.rs.len == 0))
+	{
+		LM_DBG("no custom avps found, nothing to add to ccr");
+		return;
+	}
+
+	int cur_pos = 0;
+	int custom_code =  get_next_avp_code(&customs.rs, &cur_pos, customs.rs.len, ',');
+
+	while (custom_code >= 0)
+	{
+		pv_value_t avp = get_custom_avp(custom_code, msg);
+		if ((avp.rs.len == 0) && (avp.ri == -1))
+			continue;
+		switch (get_pval_type(&avp))
+		{
+			case PV_VAL_STR:
+				LM_DBG("adding avp %d of type string to ccr", custom_code);
+				Ro_add_avp(ccr, avp.rs.s, avp.rs.len, custom_code, AAA_AVP_FLAG_MANDATORY, 0, AVP_DUPLICATE_DATA, __FUNCTION__);
+				break;
+
+			case PV_VAL_INT:
+				LM_DBG("adding avp %d of type int to ccr", custom_code);
+				Ro_add_avp(ccr, (char*)&(avp.ri), sizeof(avp.ri), custom_code, AAA_AVP_FLAG_MANDATORY, 0, AVP_DUPLICATE_DATA, __FUNCTION__);
+				break;
+
+			default:
+				break;
+		}
+		custom_code =  get_next_avp_code(&customs.rs, &cur_pos, customs.rs.len, ',');
+	}
+}
+
 int override_service_context(struct sip_msg *msg)
 {
 	static str avp_name_str = str_init("$avp(context_id_root_only)");
@@ -474,9 +586,11 @@ int override_service_context(struct sip_msg *msg)
 
 	pv_parse_spec2(&avp_name_str, &avp_spec, 1);
 	if (pv_get_spec_value(msg, &avp_spec, &val) != 0 || val.ri == 0) {
+		LM_DBG("context_id_root_only avp not found or 0!");
 		return 0;
 	}
 
+	LM_DBG("context_id_root_only avp found == 1!");
 	return 1;
 }
 
@@ -1280,7 +1394,7 @@ int Ro_Send_CCR(struct sip_msg *msg, struct dlg_cell *dlg, int dir, int reservat
         LM_ERR("Problem adding Multiple Service Credit Control data\n");
         goto error;
     }
-
+	apply_custom_avps_to_ccr(ccr, msg);
     /* before we send, update our session object with CC App session ID and data */
     new_session->auth_appid = cc_acc_session->application_id;
     new_session->auth_session_type = cc_acc_session->type;
