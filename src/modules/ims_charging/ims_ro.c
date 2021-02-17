@@ -468,6 +468,8 @@ int get_pval_type(pv_value_t* pval)
 	if (!pval) return PV_VAL_NONE;
 	if (pval->flags&PV_VAL_STR) return PV_VAL_STR;
 	if (pval->flags&PV_VAL_INT) return PV_VAL_INT;
+
+	return PV_VAL_NONE;
 }
 
 int get_next_avp_code(str* input, int* pos, int len, char sep)
@@ -478,17 +480,18 @@ int get_next_avp_code(str* input, int* pos, int len, char sep)
 	char num_str[50];
 	memset(num_str, 0, sizeof(num_str));
 
-	if (input[*pos] == sep) *pos++;
+	if (input->s[*pos] == sep) (*pos)++;
 
 	int counter = 0;
-	for (int i = *pos, i < len, i++)
+	int i = *pos;
+	for (; i < len; i++)
 	{
-		num_str[counter] = input[*pos];
+		num_str[counter] = input->s[*pos];
 
 		counter++;
-		*pos++;
+		(*pos)++;
 
-		if ((*pos >= len) || (input[*pos] == sep))
+		if ((*pos >= len) || (input->s[*pos] == sep))
 			break;
 		if (counter >= sizeof(num_str))
 			return  -1;
@@ -496,6 +499,8 @@ int get_next_avp_code(str* input, int* pos, int len, char sep)
 
 	int converted = atoi(num_str);
 	LM_DBG("get_next_avp_code returns %d", converted);
+	
+	return converted;
 }
 
 pv_value_t get_custom_avps_string(struct sip_msg *msg)
