@@ -466,13 +466,13 @@ int get_timestamps(struct sip_msg * req, struct sip_msg * reply, time_t * req_ti
 int get_pval_type(pv_value_t* pval)
 {
 	if (!pval) return PV_VAL_NONE;
+	if (pval->flags&(PV_TYPE_INT|PV_VAL_INT)) return PV_VAL_INT;
 	if (pval->flags&PV_VAL_STR) return PV_VAL_STR;
-	if (pval->flags&PV_VAL_INT) return PV_VAL_INT;
 
 	return PV_VAL_NONE;
 }
 
-int get_next_avp_code(str* input, int* pos, int len, char sep)
+int get_next_avp_code(str* input, int* pos, int len, char sep, int* vendor)
 {
 	if (!input || !pos || *pos < 0 || len <=0 || *pos >= len)
 		return -1;
@@ -497,9 +497,31 @@ int get_next_avp_code(str* input, int* pos, int len, char sep)
 			return  -1;
 	}
 
+	//The trick below does the following, if num_str contains pair
+	//avp-vendor numbers like 123-456, then the code below inserts
+	//0-terminator instead of '-' character, effectively ending the string
+	//there. However ptr will point right after this 0-terminator, to the
+	//beginning of vendor code. So atoi(num_str) gives only avp code
+	//and atoi(ptr) gives only vendor code.
+	char* ptr = num_str;
+	char* the_end = &(num_str[sizeof(num_str) - 1]);
+	for (; (*ptr != 0) && (*ptr != '-') && (ptr < the_end); ptr++);
+	*ptr = 0;
+	ptr++;
+
 	int converted = atoi(num_str);
-	LM_DBG("get_next_avp_code returns %d", converted);
-	
+
+	if ((ptr != the_end) && vendor)
+	{
+		*vendor = atoi(ptr);
+		LM_DBG("get_next_avp_code returns %d, vendor = %d",
+				converted, *vendor);
+	}
+	else
+	{
+		LM_DBG("get_next_avp_code returns %d", converted);
+	}
+
 	return converted;
 }
 
@@ -522,10 +544,15 @@ pv_value_t get_custom_avps_string(struct sip_msg *msg)
 	return val;
 }
 
-pv_value_t get_custom_avp(int avp, struct sip_msg *msg)
+pv_value_t get_custom_avp(int avp, char* name, struct sip_msg *msg)
 {
 	char avp_name[50];
-	sprintf(avp_name, "$avp(i:%d)", avp);
+
+	if (name)
+		sprintf(avp_name, "$avp(%s)", name);
+	else
+		sprintf(avp_name, "$avp(i:%d)", avp);
+
 	str avp_name_str = str_init(avp_name);
 
 	pv_spec_t avp_spec;
@@ -544,6 +571,13 @@ pv_value_t get_custom_avp(int avp, struct sip_msg *msg)
 	return val;
 }
 
+int is_avp_valid(pv_value_t* val)
+{
+	if ((val->rs.len == 0) && (val->ri == -1))
+		return 0;
+	return 1;
+}
+
 void apply_custom_avps_to_ccr(AAAMessage *ccr, struct sip_msg *msg)
 {
 	pv_value_t customs = get_custom_avps_string(msg);
@@ -553,30 +587,32 @@ void apply_custom_avps_to_ccr(AAAMessage *ccr, struct sip_msg *msg)
 		return;
 	}
 
-	int cur_pos = 0;
-	int custom_code =  get_next_avp_code(&customs.rs, &cur_pos, customs.rs.len, ',');
+	int cur_pos = 0, vendor = 0;
+	int custom_code =  get_next_avp_code(&customs.rs, &cur_pos, customs.rs.len, ',', &vendor);
 
 	while (custom_code >= 0)
 	{
-		pv_value_t avp = get_custom_avp(custom_code, msg);
-		if ((avp.rs.len == 0) && (avp.ri == -1))
+		pv_value_t avp = get_custom_avp(custom_code, 0, msg);
+		if (!is_avp_valid(&avp))
 			continue;
 		switch (get_pval_type(&avp))
 		{
 			case PV_VAL_STR:
 				LM_DBG("adding avp %d of type string to ccr", custom_code);
-				Ro_add_avp(ccr, avp.rs.s, avp.rs.len, custom_code, AAA_AVP_FLAG_MANDATORY, 0, AVP_DUPLICATE_DATA, __FUNCTION__);
+				Ro_add_avp(ccr, avp.rs.s, avp.rs.len, custom_code, AAA_AVP_FLAG_MANDATORY, vendor, AVP_DUPLICATE_DATA, __FUNCTION__);
 				break;
 
 			case PV_VAL_INT:
 				LM_DBG("adding avp %d of type int to ccr", custom_code);
-				Ro_add_avp(ccr, (char*)&(avp.ri), sizeof(avp.ri), custom_code, AAA_AVP_FLAG_MANDATORY, 0, AVP_DUPLICATE_DATA, __FUNCTION__);
+				unsigned int reversed = (unsigned int)(avp.ri);
+				reversed = ntohl(reversed);
+				Ro_add_avp(ccr, (char*)&(reversed), sizeof(int), custom_code, AAA_AVP_FLAG_MANDATORY, vendor, AVP_DUPLICATE_DATA, __FUNCTION__);
 				break;
 
 			default:
 				break;
 		}
-		custom_code =  get_next_avp_code(&customs.rs, &cur_pos, customs.rs.len, ',');
+		custom_code =  get_next_avp_code(&customs.rs, &cur_pos, customs.rs.len, ',', &vendor);
 	}
 }
 
@@ -597,6 +633,67 @@ int override_service_context(struct sip_msg *msg)
 
 	LM_DBG("context_id_root_only avp found == 1!");
 	return 1;
+}
+
+void update_subsciption(str* subscription_id, int* subscription_id_type, struct sip_msg * req, struct ro_session* ro_session)
+{
+	*subscription_id_type = Subscription_Type_IMPU; //default is END_USER_SIP_URI
+
+	if (req)
+	{
+		pv_value_t sub_type = get_custom_avp(-1, "subscription_id_type", req);
+		pv_value_t sub_data = get_custom_avp(-1, "subscription_id_data", req);
+
+		if (is_avp_valid(&sub_type))
+			*subscription_id_type = sub_type.ri;
+
+		if (is_avp_valid(&sub_data))
+		{
+			if (sub_data.rs.len <= subscription_id->len)
+			{
+				memset(subscription_id->s, 0, subscription_id->len);
+				memcpy(subscription_id->s, sub_data.rs.s, sub_data.rs.len);
+			}
+			else
+			{
+				static char temp[50];
+				memset(temp, 0, sizeof(temp));
+				memcpy(temp, sub_data.rs.s, sub_data.rs.len);
+				subscription_id->s = temp;
+			}
+		}
+	}
+
+	if (ro_session)
+	{
+		if (ro_session->subscription_type >= 0)
+			*subscription_id_type = ro_session->subscription_type;
+
+		int len = strlen(ro_session->subscription_data);
+		if (len > 0)
+		{
+			if (len <= subscription_id->len)
+			{
+				memset(subscription_id->s, 0, subscription_id->len);
+				memcpy(subscription_id->s, ro_session->subscription_data, len);
+			}
+			else
+			{
+				static char temp[50];
+				memset(temp, 0, sizeof(temp));
+				memcpy(temp, ro_session->subscription_data, len);
+				subscription_id->s = temp;
+			}
+		}
+	}
+
+	//getting subscription id type
+	if (strncasecmp(subscription_id->s, "tel:", 4) == 0)
+	{
+		*subscription_id_type = Subscription_Type_MSISDN;
+		subscription_id->s += 4;
+		subscription_id->len -= 4;
+	}
 }
 
 /*
@@ -771,15 +868,7 @@ void send_ccr_interim(struct ro_session* ro_session, unsigned int used, unsigned
         goto error;
     }
 
-    //getting subscription id type
-    if (strncasecmp(subscr.id.s, "tel:", 4) == 0) {
-        subscr.type = Subscription_Type_MSISDN;
-        // Strip "tel:":
-        subscr.id.s += 4;
-        subscr.id.len -= 4;
-    } else {
-        subscr.type = Subscription_Type_IMPU; //default is END_USER_SIP_URI
-    }
+	update_subsciption(&subscr.id, &(subscr.type), 0, ro_session);
 
     user_name.s = subscr.id.s;
     user_name.len = subscr.id.len;
@@ -1043,14 +1132,7 @@ void send_ccr_stop_with_param(struct ro_session *ro_session, unsigned int code, 
         goto error0;
     }
 
-    //getting subscription id type
-    if (strncasecmp(subscr.id.s, "tel:", 4) == 0) {
-        subscr.type = Subscription_Type_MSISDN;
-        subscr.id.s += 4;
-        subscr.id.len -= 4;
-    } else {
-        subscr.type = Subscription_Type_IMPU; //default is END_USER_SIP_URI
-    }
+	update_subsciption(&subscr.id, &(subscr.type), 0, ro_session);
 
     user_name.s = subscr.id.s;
     user_name.len = subscr.id.len;
@@ -1286,14 +1368,7 @@ int Ro_Send_CCR(struct sip_msg *msg, struct dlg_cell *dlg, int dir, int reservat
         goto error;
     }
 
-    //getting subscription id type
-    if (strncasecmp(subscription_id.s, "tel:", 4) == 0) {
-        subscription_id_type = Subscription_Type_MSISDN;
-        subscription_id.s += 4;
-        subscription_id.len -= 4;
-    } else {
-        subscription_id_type = Subscription_Type_IMPU; //default is END_USER_SIP_URI
-    }
+	update_subsciption(&subscription_id, &subscription_id_type, msg, 0);
 
     str mac = {0, 0};
     if (get_mac_avp_value(msg, &mac) != 0)

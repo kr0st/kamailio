@@ -287,6 +287,9 @@ struct ro_session* build_new_ro_session(int direction, int auth_appid, int auth_
         return 0;
     }
 
+	new_ro_session->subscription_type = -1;
+	memset(new_ro_session->subscription_data, 0, sizeof (new_ro_session->subscription_data));
+
     return new_ro_session;
 
 }

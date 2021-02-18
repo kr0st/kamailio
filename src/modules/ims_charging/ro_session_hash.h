@@ -81,6 +81,8 @@ struct ro_session {
     unsigned int is_final_allocation;
     long billed;
     unsigned int ccr_sent;
+	int subscription_type;
+	char subscription_data[50];
 };
 
 /*! entries in the main ro_session table */
