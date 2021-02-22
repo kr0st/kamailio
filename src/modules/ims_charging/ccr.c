@@ -12,6 +12,14 @@ int Ro_write_event_type_avps(AAA_AVP_LIST * avp_list, event_type_t * x) {
     AAA_AVP_LIST aList = {0, 0};
 
     LM_DBG("write event type AVPs\n");
+
+	//*** hardcode-test ***
+	str evt_type = str_init("2");
+	if (!cdp_avp->epcapp.add_Event(&aList, evt_type, AVP_DUPLICATE_DATA))
+		goto error;
+	//*** hardcode-test ***
+
+	/*
     if (x->sip_method) {
         if (!cdp_avp->epcapp.add_SIP_Method(&aList, *(x->sip_method), AVP_DUPLICATE_DATA))
             goto error;
@@ -24,7 +32,7 @@ int Ro_write_event_type_avps(AAA_AVP_LIST * avp_list, event_type_t * x) {
     if (x->expires)
         if (!cdp_avp->epcapp.add_Expires(&aList, *(x->expires)))
             goto error;
-
+	*/
     if (!cdp_avp->epcapp.add_Event_Type(avp_list, &aList, AVP_FREE_DATA))	//TODO: used to be DONT FREE
         goto error;
 
@@ -69,6 +77,30 @@ error:
     return 0;
 }
 
+int ro_add_avp_list(AAA_AVP_LIST *list, char *d, int len, int avp_code,
+					int flags, int vendorid, int data_do, const char *func) {
+	AAA_AVP *avp;
+	if (vendorid != 0) flags |= AAA_AVP_FLAG_VENDOR_SPECIFIC;
+	avp = cdpb.AAACreateAVP(avp_code, flags, vendorid, d, len, data_do);
+	if (!avp) {
+				LM_ERR("%s: Failed creating avp\n", func);
+		return 0;
+	}
+	if (list->tail) {
+		avp->prev = list->tail;
+		avp->next = 0;
+		list->tail->next = avp;
+		list->tail = avp;
+	} else {
+		list->head = avp;
+		list->tail = avp;
+		avp->next = 0;
+		avp->prev = 0;
+	}
+
+	return 1;
+}
+
 int Ro_write_ims_information_avps(AAA_AVP_LIST * avp_list, ims_information_t* x) {
     str_list_slot_t * sl = 0;
     AAA_AVP_LIST aList = {0, 0};
@@ -77,6 +109,46 @@ int Ro_write_ims_information_avps(AAA_AVP_LIST * avp_list, ims_information_t* x)
     ioi_list_element_t * ioi_elem = 0;
 
     LM_DBG("write IMS information AVPs\n");
+
+	//*** hardcode-test ***
+	str svc_id = str_init("20");
+	if (!cdp_avp->epcapp.add_Service_ID(&aList2, svc_id, AVP_DUPLICATE_DATA))
+		goto error;
+
+	AAA_AVP_LIST ps_info = {0, 0};
+	AAA_AVP_LIST svc_data_cont = {0, 0};
+	AAA_AVP_LIST lcs_info = {0, 0};
+	//unsigned char bytes_user_loc[] = {0x28, 0x20, 0x6f, 0x20, 0x10, 0xf2, 0x20,
+			                          //0x6f, 0x20, 0x00, 0x01, 0xc1, 0x43};
+	unsigned char bytes_user_loc[] = {0x82, 0x02, 0xf6, 0x02, 0x01, 0x2f, 0x02,
+									  0xf6, 0x02, 0x00, 0x10, 0x1c, 0x34};
+	str user_loc = {(char*)bytes_user_loc, sizeof(bytes_user_loc)};
+	str imsi = str_init("206203000000007");
+
+	unsigned int reversed = ntohl(3);
+	ro_add_avp_list(&ps_info, (char*)&(reversed), sizeof(int), 2066,
+					AAA_AVP_FLAG_MANDATORY, 10415,
+					AVP_DUPLICATE_DATA, __FUNCTION__);
+
+	ro_add_avp_list(&lcs_info, imsi.s, imsi.len, 8,
+					AAA_AVP_FLAG_MANDATORY, 10415,
+					AVP_DUPLICATE_DATA, __FUNCTION__);
+
+	if (!cdp_avp->epcapp.add_3GPP_User_Location_Info(&svc_data_cont, user_loc, AVP_DUPLICATE_DATA))
+		goto error;
+
+	if (!cdp_avp->epcapp.add_Service_Data_Container(&ps_info, &svc_data_cont, AVP_DUPLICATE_DATA))
+		goto error;
+	if (!cdp_avp->epcapp.add_LCS_Info(&ps_info, &lcs_info, AVP_DUPLICATE_DATA))
+		goto error;
+	if (!cdp_avp->epcapp.add_PS_Information(&aList2, &ps_info, AVP_DUPLICATE_DATA))
+		goto error;
+
+	cdp_avp->cdp->AAAFreeAVPList(&svc_data_cont);
+	cdp_avp->cdp->AAAFreeAVPList(&lcs_info);
+	cdp_avp->cdp->AAAFreeAVPList(&ps_info);
+
+	//*** hardcode-test ***
 
     if (x->event_type)
         if (!Ro_write_event_type_avps(&aList2, x->event_type))
