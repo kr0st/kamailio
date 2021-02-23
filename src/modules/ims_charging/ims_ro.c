@@ -1368,6 +1368,14 @@ int Ro_Send_CCR(struct sip_msg *msg, struct dlg_cell *dlg, int dir, int reservat
         goto error;
     }
 
+	pv_value_t called_num = get_custom_avp(0, "called_number", msg);
+	if (is_avp_valid(&called_num) && called_num.rs.s !=0
+			&& called_num.rs.len !=0 && called_num.rs.len <= called_asserted_identity.len)
+	{
+		memset(called_asserted_identity.s, 0, called_asserted_identity.len);
+		memcpy(called_asserted_identity.s, called_num.rs.s, called_num.rs.len);
+	}
+
 	update_subsciption(&subscription_id, &subscription_id_type, msg, 0);
 
     str mac = {0, 0};
