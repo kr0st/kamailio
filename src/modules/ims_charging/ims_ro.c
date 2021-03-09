@@ -653,6 +653,7 @@ void update_subsciption(str* subscription_id, int* subscription_id_type, struct 
 			{
 				memset(subscription_id->s, 0, subscription_id->len);
 				memcpy(subscription_id->s, sub_data.rs.s, sub_data.rs.len);
+				subscription_id->len = sub_data.rs.len;
 			}
 			else
 			{
@@ -660,6 +661,7 @@ void update_subsciption(str* subscription_id, int* subscription_id_type, struct 
 				memset(temp, 0, sizeof(temp));
 				memcpy(temp, sub_data.rs.s, sub_data.rs.len);
 				subscription_id->s = temp;
+				subscription_id->len = strlen(temp);
 			}
 		}
 	}
@@ -1374,6 +1376,7 @@ int Ro_Send_CCR(struct sip_msg *msg, struct dlg_cell *dlg, int dir, int reservat
 	{
 		memset(called_asserted_identity.s, 0, called_asserted_identity.len);
 		memcpy(called_asserted_identity.s, called_num.rs.s, called_num.rs.len);
+		called_asserted_identity.len = called_num.rs.len;
 	}
 
 	update_subsciption(&subscription_id, &subscription_id_type, msg, 0);
